@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.optimize import fsolve
+from tqdm.auto import tqdm
 import math
 
 BIN_WIDTH_M = 0.32
@@ -19,7 +20,7 @@ WATER_DYNANIC_MU = 1.0005e-3
 WATER_RHO = 998.23
 GRAVITY = 9.81
 
-ROUGHNESS = 0.7
+ROUGHNESS = 0.75
 FRICTION_FACTOR = 0.5
 K_ENTRY = 0.5
 K_TJOINT = 1
@@ -49,10 +50,9 @@ def get_start_relative_height_m(L):
     return SIN_THETA_RADS * L + START_HEIGHT_M
 
 
-def get_velocity_v2_m_per_s(v1, h, L, k_tot, f=FRICTION_FACTOR):
-    numerator = 0.5 * v1 ** 2 + GRAVITY * h
-    denominator = 0.5 + k_tot / (2 * GRAVITY) + \
-                  f * L / (2 * TUBE_DIAMETER_M * GRAVITY)
+def get_velocity_v2_m_per_s(v1, h, L, k_tot, f):
+    numerator = v1 ** 2 + 2 * GRAVITY * h
+    denominator = 1 + k_tot / GRAVITY + f * L / (GRAVITY * TUBE_DIAMETER_M)
 
     return np.sqrt(numerator / denominator)
 
@@ -150,7 +150,7 @@ def plot_avg_velocity_vs_length():
     tube_lengths = []
     average_velocities = []
 
-    for i in range(1, 20):
+    for i in tqdm(range(1, 20)):
         L = i / 10
 
         df = run_simulation(L)
