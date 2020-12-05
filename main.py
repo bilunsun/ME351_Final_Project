@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
+from scipy.optimize import fsolve
+import math
 
 BIN_WIDTH_M = 0.32
 BIN_LENGTH_M = 0.26
@@ -14,10 +15,11 @@ END_HEIGHT_M = 0.02
 TOTAL_HEIGHT_CHANGE_M = 0.08
 START_HEIGHT_M = END_HEIGHT_M + TOTAL_HEIGHT_CHANGE_M
 
-WATER_DYNANIC_MU = 1.005e-3
-WATER_RHO = 1.0
+WATER_DYNANIC_MU = 1.0005e-3
+WATER_RHO = 998.23
 GRAVITY = 9.81
 
+ROUGHNESS = 0.7
 FRICTION_FACTOR = 0.5
 K_ENTRY = 0.5
 K_TJOINT = 1
@@ -36,7 +38,7 @@ def get_bin_volume_m3():
 
 
 def get_pipe_area():
-    return np.pi * TUBE_DIAMETER_M**2 / 4
+    return np.pi * TUBE_DIAMETER_M ** 2 / 4
 
 
 def get_tube_volume_m3(L):
@@ -48,10 +50,10 @@ def get_start_relative_height_m(L):
 
 
 def get_velocity_v2_m_per_s(v1, h, L, k_tot, f=FRICTION_FACTOR):
-    numerator = 0.5 * WATER_RHO * v1**2 + WATER_RHO * GRAVITY * h
-    denominator = 0.5 * WATER_RHO + k_tot / (2 * GRAVITY) + \
-        FRICTION_FACTOR * L / (2 * TUBE_DIAMETER_M * GRAVITY)
-    
+    numerator = 0.5 * v1 ** 2 + GRAVITY * h
+    denominator = 0.5 + k_tot / (2 * GRAVITY) + \
+                  f * L / (2 * TUBE_DIAMETER_M * GRAVITY)
+
     return np.sqrt(numerator / denominator)
 
 
@@ -59,14 +61,22 @@ def get_reynolds_number(rho, u, L, mu):
     return rho * u * L / mu
 
 
+def colebrook(f_coeff, Re):
+    return 1 / math.sqrt(f_coeff) + 2 * math.log(ROUGHNESS / 3.7 + 2.51 / (Re * math.sqrt(f_coeff)), 10)
+
+
+def get_friction_coeff(Re):
+    return fsolve(colebrook, 0.01, Re)
+
+
 def run_simulation(L, with_t_joint=False):
     bin_volume_m3 = get_bin_volume_m3()
     tube_volume_m3 = get_tube_volume_m3(L)
-    
+
     total_volume_m3 = bin_volume_m3 + tube_volume_m3
 
     start_relative_height_m = get_start_relative_height_m(L)
-    
+
     absolute_height_m = START_HEIGHT_M
 
     elapsed_time_s = 0
@@ -84,9 +94,10 @@ def run_simulation(L, with_t_joint=False):
 
     columns = ["t", "v1", "v2", "h", "V", "dh", "dV"]
     data = []
+    computed_f = 1  # assume infinite friction at start?
 
     while absolute_height_m >= END_HEIGHT_M and elapsed_time_s < 500:
-        v2 = get_velocity_v2_m_per_s(v1, relative_height_m, L, k_tot)
+        v2 = get_velocity_v2_m_per_s(v1, relative_height_m, L, k_tot, f=computed_f)
         dV = v2 * PIPE_AREA_M2 * dt
         current_volume_m3 = previous_volume_m3 - dV
         dh = dV / (BIN_WIDTH_M * BIN_LENGTH_M)
@@ -100,6 +111,9 @@ def run_simulation(L, with_t_joint=False):
         prev_relative_height_m = relative_height_m
         elapsed_time_s += dt
         total_delta_h_m += dh
+
+        reynolds = get_reynolds_number(WATER_RHO, v2, TUBE_DIAMETER_M, WATER_DYNANIC_MU)
+        computed_f = get_friction_coeff(reynolds)[0]
 
     df = pd.DataFrame(data=data, columns=columns)
     return df
@@ -121,7 +135,7 @@ def plot_height_vs_time_superimposed(tube_lengths=TUBE_LENGTHS_M, with_t_joint=F
         total_time_s = round(x.iloc[-1], 2)
         difference_with_experimental_results_s = round(EXPERIMENTAL_RESULTS[i] - total_time_s, 3)
         print(f"Total time for L={round(L, 1)}m: {total_time_s}s; difference={difference_with_experimental_results_s}s")
-    
+
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Water height (m)")
 
@@ -140,17 +154,17 @@ def plot_avg_velocity_vs_length():
         L = i / 10
 
         df = run_simulation(L)
-        
+
         tube_lengths.append(L)
         average_velocities.append(np.mean(df["v2"]))
-    
+
     plt.scatter(tube_lengths, average_velocities, c="r", alpha=0.5)
     plt.title("Average outlet velocity vs tube length")
     plt.xlabel("Tube length (m)")
     plt.ylabel("Average outlet velocity")
     plt.grid(True)
 
-    plt.show()   
+    plt.show()
 
 
 if __name__ == "__main__":
